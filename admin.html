@@ -703,7 +703,7 @@ function initStatusButtons(){
 
       const assigneeWrap = document.getElementById('assignee-wrap');
       const resolverWrap = document.getElementById('resolver-wrap');
-      assigneeWrap.classList.toggle('open', selectedStatus === 'assigned');
+      assigneeWrap.classList.toggle('open', selectedStatus === 'pending');
       resolverWrap.classList.toggle('open', selectedStatus === 'completed');
     });
   });
@@ -729,8 +729,8 @@ function initNewQueryForm(){
     if (!text) return showMsg(msgEl, 'Please describe the query before saving.', 'error');
     if (!requester) return showMsg(msgEl, 'Please enter the requester\'s name before saving.', 'error');
     if (!selectedStatus) return showMsg(msgEl, 'Please select a status.', 'error');
-    if (selectedStatus === 'assigned' && !assignee) {
-      return showMsg(msgEl, 'Select an assignee before saving an Assign to Dev entry.', 'error');
+    if (selectedStatus === 'pending' && !assignee) {
+      return showMsg(msgEl, 'Select an assignee before saving a Pending entry.', 'error');
     }
     if (selectedStatus === 'completed' && !resolver) {
       return showMsg(msgEl, 'Select a resolver name before saving a Query Out entry.', 'error');
@@ -874,7 +874,7 @@ function renderResolveList(refetch){
                     <option value="assigned" ${q.assigned?'selected':''}>Assigned</option>
                     <option value="completed">Query Out</option>
                   </select>
-                  <select class="resolve-assignee" style="display:${q.assigned?'inline-block':'none'}">
+                  <select class="resolve-assignee" style="display:${q.pending?'inline-block':'none'}">
                     <option value="">Assignee…</option>
                     ${teamNames.map(n => `<option value="${escapeHtml(n)}" ${n===q.assignee?'selected':''}>${escapeHtml(n)}</option>`).join('')}
                   </select>
@@ -902,7 +902,7 @@ function renderResolveList(refetch){
     if (!statusSel) return; // row is in edit mode, no status controls to wire up
 
     statusSel.addEventListener('change', () => {
-      assigneeSel.style.display = statusSel.value === 'assigned' ? 'inline-block' : 'none';
+      assigneeSel.style.display = statusSel.value === 'pending' ? 'inline-block' : 'none';
       nameSel.style.display = statusSel.value === 'completed' ? 'inline-block' : 'none';
     });
 
@@ -912,8 +912,8 @@ function renderResolveList(refetch){
       const status = statusSel.value;
       const assignee = assigneeSel.value;
       const name = nameSel.value;
-      if (status === 'assigned' && !assignee){
-        alert('Select an assignee before marking Assigned.');
+      if (status === 'pending' && !assignee){
+        alert('Select an assignee before marking Pending.');
         return;
       }
       if (status === 'completed' && !name){
