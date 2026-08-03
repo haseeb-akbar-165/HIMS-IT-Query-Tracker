@@ -473,6 +473,9 @@
         <label class="field-label">Query Description</label>
         <textarea id="query-text" placeholder="Describe the IT query issue..."></textarea>
 
+        <label class="field-label">Requester</label>
+        <input type="text" id="requester-input" placeholder="Name of the person raising this query" style="margin-bottom:26px;">
+
         <label class="field-label">Status</label>
         <div class="status-row" id="status-row">
           <button type="button" class="status-btn" data-status="pending">⏱ Pending</button>
@@ -480,10 +483,19 @@
           <button type="button" class="status-btn" data-status="completed">✅ Query Out</button>
         </div>
 
+        <div class="resolver-wrap" id="assignee-wrap">
+          <div class="resolver-inner">
+            <label class="field-label">Select Assignee</label>
+            <select id="assignee-select" class="team-dropdown">
+              <option value="">— Choose a name —</option>
+            </select>
+          </div>
+        </div>
+
         <div class="resolver-wrap" id="resolver-wrap">
           <div class="resolver-inner">
             <label class="field-label">Select Resolver</label>
-            <select id="resolver-select">
+            <select id="resolver-select" class="team-dropdown">
               <option value="">— Choose a name —</option>
             </select>
           </div>
@@ -570,7 +582,7 @@ let currentMonth = '';
 
 /* ---------------------------- init ---------------------------- */
 document.addEventListener('DOMContentLoaded', () => {
-  if (!API_URL || API_URL.indexOf('PASTE_') === 0) {
+  if (!API_URL || API_URL.indexOf('INSERT_') === 0) {
     document.getElementById('config-banner').style.display = 'block';
   }
   initTabs();
@@ -689,15 +701,16 @@ function initStatusButtons(){
       btn.classList.add('selected');
       selectedStatus = btn.dataset.status;
 
-      const wrap = document.getElementById('resolver-wrap');
-      if (selectedStatus === 'completed') wrap.classList.add('open');
-      else wrap.classList.remove('open');
+      const assigneeWrap = document.getElementById('assignee-wrap');
+      const resolverWrap = document.getElementById('resolver-wrap');
+      assigneeWrap.classList.toggle('open', selectedStatus === 'assigned');
+      resolverWrap.classList.toggle('open', selectedStatus === 'completed');
     });
   });
 }
 
 function populateResolverDropdowns(){
-  document.querySelectorAll('#resolver-select').forEach(sel => {
+  document.querySelectorAll('.team-dropdown').forEach(sel => {
     sel.innerHTML = '<option value="">— Choose a name —</option>' +
       teamNames.map(n => `<option value="${escapeHtml(n)}">${escapeHtml(n)}</option>`).join('');
   });
@@ -709,14 +722,20 @@ function initNewQueryForm(){
     const msgEl = document.getElementById('new-query-msg');
     msgEl.className = 'msg';
     const text = document.getElementById('query-text').value.trim();
+    const requester = document.getElementById('requester-input').value.trim();
+    const assignee = document.getElementById('assignee-select').value;
     const resolver = document.getElementById('resolver-select').value;
 
     if (!text) return showMsg(msgEl, 'Please describe the query before saving.', 'error');
+    if (!requester) return showMsg(msgEl, 'Please enter the requester\'s name before saving.', 'error');
     if (!selectedStatus) return showMsg(msgEl, 'Please select a status.', 'error');
+    if (selectedStatus === 'assigned' && !assignee) {
+      return showMsg(msgEl, 'Select an assignee before saving an Assign to Dev entry.', 'error');
+    }
     if (selectedStatus === 'completed' && !resolver) {
       return showMsg(msgEl, 'Select a resolver name before saving a Query Out entry.', 'error');
     }
-    if (!API_URL || API_URL.indexOf('PASTE_') === 0) {
+    if (!API_URL || API_URL.indexOf('INSERT_') === 0) {
       return showMsg(msgEl, 'Backend URL is not configured yet — see the banner above.', 'error');
     }
 
@@ -728,13 +747,18 @@ function initNewQueryForm(){
         action: 'create',
         queryText: text,
         status: selectedStatus,
+        requesterName: requester,
+        assigneeName: assignee,
         resolverName: resolver
       });
       if (result.success){
         showMsg(msgEl, 'Query saved successfully.', 'success');
         document.getElementById('query-text').value = '';
+        document.getElementById('requester-input').value = '';
         document.querySelectorAll('#status-row .status-btn').forEach(b => b.classList.remove('selected'));
+        document.getElementById('assignee-wrap').classList.remove('open');
         document.getElementById('resolver-wrap').classList.remove('open');
+        document.getElementById('assignee-select').value = '';
         document.getElementById('resolver-select').value = '';
         selectedStatus = null;
         loadStats();
@@ -850,6 +874,10 @@ function renderResolveList(refetch){
                     <option value="assigned" ${q.assigned?'selected':''}>Assigned</option>
                     <option value="completed">Query Out</option>
                   </select>
+                  <select class="resolve-assignee" style="display:${q.assigned?'inline-block':'none'}">
+                    <option value="">Assignee…</option>
+                    ${teamNames.map(n => `<option value="${escapeHtml(n)}" ${n===q.assignee?'selected':''}>${escapeHtml(n)}</option>`).join('')}
+                  </select>
                   <select class="resolve-name" style="display:none">
                     <option value="">Resolver…</option>
                     ${teamNames.map(n => `<option value="${escapeHtml(n)}">${escapeHtml(n)}</option>`).join('')}
@@ -869,21 +897,30 @@ function renderResolveList(refetch){
 
   container.querySelectorAll('tr').forEach(tr => {
     const statusSel = tr.querySelector('.resolve-status');
+    const assigneeSel = tr.querySelector('.resolve-assignee');
     const nameSel = tr.querySelector('.resolve-name');
     if (!statusSel) return; // row is in edit mode, no status controls to wire up
+
     statusSel.addEventListener('change', () => {
+      assigneeSel.style.display = statusSel.value === 'assigned' ? 'inline-block' : 'none';
       nameSel.style.display = statusSel.value === 'completed' ? 'inline-block' : 'none';
     });
+
     tr.querySelector('.save-resolve').addEventListener('click', async () => {
       const rowIndex = tr.dataset.row;
       const month = tr.dataset.month;
       const status = statusSel.value;
+      const assignee = assigneeSel.value;
       const name = nameSel.value;
+      if (status === 'assigned' && !assignee){
+        alert('Select an assignee before marking Assigned.');
+        return;
+      }
       if (status === 'completed' && !name){
         alert('Select a resolver name before marking Query Out.');
         return;
       }
-      const result = await apiPost({ action: 'update', month, rowIndex, status, resolverName: name });
+      const result = await apiPost({ action: 'update', month, rowIndex, status, assigneeName: assignee, resolverName: name });
       if (result.success){
         loadQueryList(document.getElementById('resolve-month').value, renderResolveList);
         loadStats();
@@ -941,7 +978,7 @@ function renderSearchResults(refetch){
 
   container.innerHTML = `
     <table>
-      <thead><tr><th>Date</th><th>Time</th><th>Query</th><th>Status</th><th>Resolver</th><th>Actions</th></tr></thead>
+      <thead><tr><th>Date</th><th>Time</th><th>Query</th><th>Status</th><th>Requester</th><th>Assignee</th><th>Resolver</th><th>Actions</th></tr></thead>
       <tbody>
         ${rows.map(q => {
           const key = makeKey(q);
@@ -954,6 +991,8 @@ function renderSearchResults(refetch){
               ? `<textarea class="edit-textarea" data-key="${key}">${escapeHtml(q.queryText)}</textarea>`
               : escapeHtml(q.queryText)}</td>
             <td>${statusBadge(q)}</td>
+            <td>${escapeHtml(q.requester || '—')}</td>
+            <td>${escapeHtml(q.assignee || '—')}</td>
             <td>${escapeHtml(q.name || '—')}</td>
             <td>${editActionsHtml(key, isEditing)}</td>
           </tr>
