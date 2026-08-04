@@ -411,11 +411,86 @@
     .tab-panels{ padding:24px 18px 50px; }
     .dash-grid{ grid-template-columns:1fr; }
   }
+
+  /* ---------------- LOGIN OVERLAY ---------------- */
+  .login-overlay{
+    position:fixed;
+    inset:0;
+    background:linear-gradient(165deg,var(--navy-1) 0%, var(--navy-2) 55%, var(--blue-accent) 130%);
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    z-index:1000;
+    padding:20px;
+  }
+  .login-card{
+    width:100%;
+    max-width:380px;
+    background:#fff;
+    border-radius:16px;
+    padding:36px 32px;
+    box-shadow:0 20px 60px rgba(10,42,94,0.35);
+  }
+  .login-eyebrow{
+    font-family:'JetBrains Mono',monospace;
+    font-size:11px;
+    letter-spacing:.14em;
+    text-transform:uppercase;
+    color:var(--ink-soft);
+    margin-bottom:8px;
+  }
+  .login-title{
+    font-size:22px;
+    font-weight:800;
+    margin:0 0 24px;
+  }
+  .login-field{ margin-bottom:16px; }
+  .login-btn{
+    width:100%;
+    padding:14px;
+    border:none;
+    border-radius:10px;
+    background:linear-gradient(120deg,var(--navy-2),var(--blue-accent));
+    color:#fff;
+    font-size:14.5px;
+    font-weight:700;
+    cursor:pointer;
+    margin-top:6px;
+  }
+  .login-btn:disabled{ opacity:.6; cursor:not-allowed; }
+  .logout-link{
+    background:none;
+    border:none;
+    color:#9FC0F5;
+    font-size:11px;
+    cursor:pointer;
+    padding:0;
+    text-decoration:underline;
+  }
+  .logout-link:hover{ color:#fff; }
 </style>
 </head>
 <body>
 
-<div class="app">
+<!-- ==================== LOGIN OVERLAY ==================== -->
+<div class="login-overlay" id="login-overlay">
+  <div class="login-card">
+    <div class="login-eyebrow">HIMS &middot; IT OPERATIONS</div>
+    <h2 class="login-title">Admin sign in</h2>
+    <div class="login-field">
+      <label class="field-label">Username</label>
+      <input type="text" id="login-username" autocomplete="username">
+    </div>
+    <div class="login-field">
+      <label class="field-label">Password</label>
+      <input type="password" id="login-password" autocomplete="current-password">
+    </div>
+    <button class="login-btn" id="login-btn">Log In</button>
+    <div class="msg" id="login-msg"></div>
+  </div>
+</div>
+
+<div class="app" id="main-app" style="display:none;">
 
   <!-- ==================== SIDEBAR ==================== -->
   <aside class="sidebar">
@@ -446,7 +521,7 @@
       </div>
     </div>
 
-    <div class="sidebar-footer">Connected to Google Sheets backend</div>
+    <div class="sidebar-footer">Connected to Google Sheets backend &middot; <button class="logout-link" id="logout-btn">Log out</button></div>
   </aside>
 
   <!-- ==================== MAIN ==================== -->
@@ -571,7 +646,7 @@
 /* =========================================================================
    CONFIG — paste your deployed Apps Script Web App URL below.
    ========================================================================= */
-const API_URL = "https://script.google.com/macros/s/AKfycbwfp4qNK_ltu8sq5kakmbbqTFMjium6_VlaStYuW2ftQ7ufkZ0R7PveqKY2jk8Dqj-D/exec";
+const API_URL = "INSERT_YOUR_WEB_APP_URL_HERE";
 
 /* ---------------------------- state ---------------------------- */
 let selectedStatus = null;
@@ -579,12 +654,71 @@ let teamNames = [];
 let allQueries = [];
 let monthNames = [];
 let currentMonth = '';
+let authToken = null; // in-memory only — never persisted to storage, cleared on refresh/logout
 
 /* ---------------------------- init ---------------------------- */
 document.addEventListener('DOMContentLoaded', () => {
   if (!API_URL || API_URL.indexOf('INSERT_') === 0) {
     document.getElementById('config-banner').style.display = 'block';
   }
+  initLogin();
+});
+
+/* ---------------------------- login / logout ---------------------------- */
+function initLogin(){
+  document.getElementById('login-btn').addEventListener('click', attemptLogin);
+  document.getElementById('login-password').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') attemptLogin();
+  });
+  document.getElementById('logout-btn').addEventListener('click', () => {
+    authToken = null;
+    location.reload(); // simplest way to fully reset in-memory app state
+  });
+}
+
+async function attemptLogin(){
+  const userEl = document.getElementById('login-username');
+  const passEl = document.getElementById('login-password');
+  const msgEl = document.getElementById('login-msg');
+  const btn = document.getElementById('login-btn');
+
+  const username = userEl.value.trim();
+  const password = passEl.value;
+  msgEl.className = 'msg';
+
+  if (!username || !password){
+    showMsg(msgEl, 'Enter both a username and password.', 'error');
+    return;
+  }
+  if (!API_URL || API_URL.indexOf('INSERT_') === 0){
+    showMsg(msgEl, 'Backend URL is not configured yet — see the banner above.', 'error');
+    return;
+  }
+
+  btn.disabled = true; btn.textContent = 'Signing in…';
+  try{
+    const res = await fetch(API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ action: 'login', username, password })
+    });
+    const result = await res.json();
+    if (result && result.success){
+      authToken = result.token;
+      document.getElementById('login-overlay').style.display = 'none';
+      document.getElementById('main-app').style.display = 'flex';
+      startApp();
+    } else {
+      showMsg(msgEl, (result && result.error) ? result.error : 'Login failed.', 'error');
+    }
+  }catch(err){
+    showMsg(msgEl, 'Could not reach the backend. Check the API URL and deployment.', 'error');
+  }finally{
+    btn.disabled = false; btn.textContent = 'Log In';
+  }
+}
+
+function startApp(){
   initTabs();
   initStatusButtons();
   initNewQueryForm();
@@ -592,7 +726,16 @@ document.addEventListener('DOMContentLoaded', () => {
   initSearch();
   document.getElementById('refresh-dashboard').addEventListener('click', loadStats);
   loadInit();
-});
+}
+
+// Called whenever the backend reports the session token is no longer valid.
+function handleSessionExpired(){
+  authToken = null;
+  document.getElementById('main-app').style.display = 'none';
+  document.getElementById('login-overlay').style.display = 'flex';
+  const msgEl = document.getElementById('login-msg');
+  showMsg(msgEl, 'Your session expired. Please log in again.', 'error');
+}
 
 /* ---------------------------- tabs ---------------------------- */
 function initTabs(){
@@ -613,16 +756,25 @@ function initTabs(){
 
 /* ---------------------------- API helpers ---------------------------- */
 async function apiGet(action){
-  const res = await fetch(`${API_URL}?action=${action}`);
-  return res.json();
+  const res = await fetch(`${API_URL}?action=${action}&token=${encodeURIComponent(authToken || '')}`);
+  const result = await res.json();
+  if (result && result.error === 'Unauthorized'){
+    handleSessionExpired();
+    throw new Error('Unauthorized');
+  }
+  return result;
 }
 async function apiPost(payload){
   const res = await fetch(API_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'text/plain;charset=utf-8' }, // avoids CORS preflight on Apps Script
-    body: JSON.stringify(payload)
+    body: JSON.stringify({ ...payload, token: authToken })
   });
-  return res.json();
+  const result = await res.json();
+  if (result && result.success === false && result.error === 'Your session has expired. Please log in again.'){
+    handleSessionExpired();
+  }
+  return result;
 }
 
 /* ---------------------------- initial load ---------------------------- */
