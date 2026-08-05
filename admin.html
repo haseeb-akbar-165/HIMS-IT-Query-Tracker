@@ -189,7 +189,15 @@
     margin-bottom:10px;
     text-transform:uppercase;
   }
-  textarea, input[type=text], select{
+  .field-group{ margin-bottom:20px; max-width:420px; }
+  .settings-subheading{
+    font-size:15px;
+    font-weight:700;
+    margin:0 0 16px;
+    padding-bottom:10px;
+    border-bottom:1.5px solid var(--line);
+  }
+  textarea, input[type=text], input[type=password], select{
     width:100%;
     font-family:'Inter';
     font-size:14.5px;
@@ -404,12 +412,36 @@
     margin:20px 36px 0;
   }
 
+  /* Tables can get wide (many columns) — let them scroll horizontally on
+     narrow screens instead of squashing unreadably. */
+  #resolve-list, #search-results{ overflow-x:auto; -webkit-overflow-scrolling:touch; }
+  #resolve-list table, #search-results table{ min-width:640px; }
+  .row-actions{ flex-wrap:wrap; row-gap:8px; }
+
   @media (max-width: 860px){
     .app{ flex-direction:column; }
-    .sidebar{ width:100%; }
+    .sidebar{ width:100%; padding:24px 20px 20px; }
     .stat-cards{ grid-template-columns:repeat(3,1fr); }
-    .tab-panels{ padding:24px 18px 50px; }
+    .tab-panels{ padding:20px 16px 50px; }
     .dash-grid{ grid-template-columns:1fr; }
+    .tabs{ padding:0 12px; }
+    .tab-btn{ padding:16px 12px 13px; font-size:13.5px; }
+    .status-row{ flex-direction:column; }
+    .status-btn{ min-width:0; }
+    .search-row{ gap:8px; }
+    .search-row select, .search-row input[type=date]{ width:100%; }
+    .panel-heading{ font-size:19px; }
+    .brand-title{ font-size:22px; }
+    .login-card{ padding:28px 22px; }
+    .field-group{ max-width:none; }
+  }
+
+  @media (max-width: 480px){
+    .stat-cards{ grid-template-columns:repeat(3,1fr); gap:6px; }
+    .stat-card{ padding:10px 4px; }
+    .stat-num{ font-size:18px; }
+    .stat-label{ font-size:8.5px; }
+    .tab-btn{ font-size:12.5px; padding:14px 10px 11px; }
   }
 
   /* ---------------- LOGIN OVERLAY ---------------- */
@@ -532,6 +564,7 @@
       <button class="tab-btn" data-tab="edit-search">Edit / Search</button>
       <button class="tab-btn" data-tab="dashboard">Dashboard</button>
       <button class="tab-btn" data-tab="team-admin">Team Admin</button>
+      <button class="tab-btn" data-tab="settings">Settings</button>
     </nav>
 
     <div id="config-banner" class="config-banner" style="display:none;">
@@ -638,6 +671,35 @@
         <div class="msg" id="team-msg"></div>
       </section>
 
+      <!-- ---------- SETTINGS ---------- -->
+      <section class="panel" id="panel-settings">
+        <h2 class="panel-heading">Settings</h2>
+        <p class="panel-sub">Manage your account and who else has admin access.</p>
+
+        <h3 class="settings-subheading">My account</h3>
+        <p class="panel-sub" id="settings-current-user" style="margin-bottom:18px;"></p>
+        <div class="field-group">
+          <label class="field-label">Current Password</label>
+          <input type="password" id="current-password-input" autocomplete="current-password">
+        </div>
+        <div class="field-group">
+          <label class="field-label">New Password</label>
+          <input type="password" id="new-password-input" autocomplete="new-password">
+        </div>
+        <button class="mini-btn save-edit" id="change-password-btn">Update Password</button>
+        <div class="msg" id="password-msg"></div>
+
+        <h3 class="settings-subheading" style="margin-top:36px;">Admin accounts</h3>
+        <p class="panel-sub" style="margin-bottom:16px;">Anyone on this list can log in to this dashboard.</p>
+        <ul class="team-list" id="admin-list"></ul>
+        <div class="add-team-row" style="flex-wrap:wrap;">
+          <input type="text" id="new-admin-username" placeholder="New admin username..." style="flex:1; min-width:160px;">
+          <input type="password" id="new-admin-password" placeholder="Password (min 4 characters)..." style="flex:1; min-width:160px;">
+          <button id="add-admin-btn">Add Admin</button>
+        </div>
+        <div class="msg" id="admin-msg"></div>
+      </section>
+
     </div>
   </main>
 </div>
@@ -648,12 +710,14 @@
    ========================================================================= */
 const API_URL = "https://script.google.com/macros/s/AKfycbwfp4qNK_ltu8sq5kakmbbqTFMjium6_VlaStYuW2ftQ7ufkZ0R7PveqKY2jk8Dqj-D/exec";
 
-/* ---------- ------------------ state ---------------------------- */
+/* ---------------------------- state ---------------------------- */
 let selectedStatus = null;
 let teamNames = [];
 let allQueries = [];
 let monthNames = [];
 let currentMonth = '';
+let adminNames = [];
+let currentUsername = '';
 let authToken = null; // in-memory only — never persisted to storage, cleared on refresh/logout
 
 /* ---------------------------- init ---------------------------- */
@@ -723,6 +787,7 @@ function startApp(){
   initStatusButtons();
   initNewQueryForm();
   initTeamAdmin();
+  initSettings();
   initSearch();
   document.getElementById('refresh-dashboard').addEventListener('click', loadStats);
   loadInit();
@@ -784,11 +849,16 @@ async function loadInit(){
     teamNames = data.team || [];
     monthNames = data.months || [];
     currentMonth = data.currentMonth || '';
+    adminNames = data.admins || [];
+    currentUsername = data.currentUsername || '';
     populateResolverDropdowns();
     populateMonthDropdowns();
     renderStats(data.stats);
+    renderAdminList();
     const label = document.getElementById('current-month-label');
     if (label) label.textContent = `Currently logging to: ${currentMonth}`;
+    const userLabel = document.getElementById('settings-current-user');
+    if (userLabel) userLabel.textContent = `Signed in as: ${currentUsername}`;
   }catch(err){
     console.error('Init failed', err);
   }
@@ -1205,6 +1275,98 @@ function renderTeamList(){
         renderTeamList();
       } else {
         alert(result.error || 'Could not remove name.');
+      }
+    });
+  });
+}
+
+/* ---------------------------- settings tab ---------------------------- */
+function initSettings(){
+  document.getElementById('change-password-btn').addEventListener('click', async () => {
+    const currentEl = document.getElementById('current-password-input');
+    const newEl = document.getElementById('new-password-input');
+    const msgEl = document.getElementById('password-msg');
+    msgEl.className = 'msg';
+
+    const currentPassword = currentEl.value;
+    const newPassword = newEl.value;
+
+    if (!currentPassword || !newPassword){
+      return showMsg(msgEl, 'Enter both your current and new password.', 'error');
+    }
+    if (newPassword.length < 4){
+      return showMsg(msgEl, 'New password must be at least 4 characters.', 'error');
+    }
+
+    const result = await apiPost({ action: 'changeOwnPassword', currentPassword, newPassword });
+    if (result.success){
+      currentEl.value = '';
+      newEl.value = '';
+      showMsg(msgEl, 'Password updated.', 'success');
+    } else {
+      showMsg(msgEl, result.error || 'Could not update password.', 'error');
+    }
+  });
+
+  document.getElementById('add-admin-btn').addEventListener('click', async () => {
+    const userEl = document.getElementById('new-admin-username');
+    const passEl = document.getElementById('new-admin-password');
+    const msgEl = document.getElementById('admin-msg');
+    msgEl.className = 'msg';
+
+    const username = userEl.value.trim();
+    const password = passEl.value;
+
+    if (!username || !password){
+      return showMsg(msgEl, 'Enter both a username and password.', 'error');
+    }
+    if (password.length < 4){
+      return showMsg(msgEl, 'Password must be at least 4 characters.', 'error');
+    }
+
+    const result = await apiPost({ action: 'addAdmin', username, password });
+    if (result.success){
+      userEl.value = '';
+      passEl.value = '';
+      showMsg(msgEl, 'Admin account added.', 'success');
+      await loadInit();
+    } else {
+      showMsg(msgEl, result.error || 'Could not add admin.', 'error');
+    }
+  });
+}
+
+function renderAdminList(){
+  const list = document.getElementById('admin-list');
+  if (!list) return;
+  if (adminNames.length === 0){
+    list.innerHTML = '<div class="empty-state">No admin accounts found.</div>';
+    return;
+  }
+  list.innerHTML = adminNames.map(n => `
+    <li>
+      <span>${escapeHtml(n)}${n === currentUsername ? ' <span style="color:var(--ink-soft); font-size:12px;">(you)</span>' : ''}</span>
+      ${adminNames.length > 1 ? `<button class="remove-link" data-username="${escapeHtml(n)}">Remove</button>` : ''}
+    </li>
+  `).join('');
+
+  list.querySelectorAll('.remove-link').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const username = btn.dataset.username;
+      const warning = username === currentUsername
+        ? `This is your own account. Remove "${username}" anyway? You'll be logged out.`
+        : `Remove admin "${username}"? They will no longer be able to log in.`;
+      if (!confirm(warning)) return;
+
+      const result = await apiPost({ action: 'removeAdmin', username });
+      if (result.success){
+        if (username === currentUsername){
+          handleSessionExpired();
+        } else {
+          await loadInit();
+        }
+      } else {
+        alert(result.error || 'Could not remove admin.');
       }
     });
   });
