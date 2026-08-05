@@ -411,6 +411,31 @@
     border-radius:9px;
     margin:20px 36px 0;
   }
+  .notify-banner{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:12px;
+    background:#EAF3FF;
+    border:1px solid #BFDBFE;
+    color:var(--navy-2);
+    font-size:13.5px;
+    font-weight:600;
+    padding:12px 16px;
+    border-radius:9px;
+    margin:20px 36px 0;
+  }
+  .notify-banner button{
+    appearance:none;
+    background:none;
+    border:none;
+    color:var(--navy-2);
+    font-size:15px;
+    cursor:pointer;
+    line-height:1;
+    padding:2px;
+  }
+  .notify-banner button:hover{ opacity:.7; }
 
   /* Tables can get wide (many columns) — let them scroll horizontally on
      narrow screens instead of squashing unreadably. */
@@ -571,6 +596,11 @@
       ⚠️ Set your Apps Script Web App URL in the <code>API_URL</code> constant near the top of the &lt;script&gt; tag before using this app.
     </div>
 
+    <div id="notify-banner" class="notify-banner" style="display:none;">
+      <span id="notify-banner-text"></span>
+      <button id="notify-banner-dismiss" aria-label="Dismiss">✕</button>
+    </div>
+
     <div class="tab-panels">
 
       <!-- ---------- NEW QUERY ---------- -->
@@ -698,6 +728,10 @@
           <button id="add-admin-btn">Add Admin</button>
         </div>
         <div class="msg" id="admin-msg"></div>
+
+        <h3 class="settings-subheading" style="margin-top:36px;">Login activity</h3>
+        <p class="panel-sub" style="margin-bottom:16px;">The most recent admin sign-ins, newest first.</p>
+        <div id="login-log-container"><div class="empty-state">Loading…</div></div>
       </section>
 
     </div>
@@ -738,6 +772,17 @@ function initLogin(){
     authToken = null;
     location.reload(); // simplest way to fully reset in-memory app state
   });
+  document.getElementById('notify-banner-dismiss').addEventListener('click', () => {
+    document.getElementById('notify-banner').style.display = 'none';
+  });
+}
+
+function showNewQueriesNotification(count){
+  if (!count || count <= 0) return;
+  const banner = document.getElementById('notify-banner');
+  const text = document.getElementById('notify-banner-text');
+  text.textContent = `🔔 ${count} new ${count === 1 ? 'query has' : 'queries have'} come in since your last visit — check the Resolve tab.`;
+  banner.style.display = 'flex';
 }
 
 async function attemptLogin(){
@@ -772,6 +817,7 @@ async function attemptLogin(){
       document.getElementById('login-overlay').style.display = 'none';
       document.getElementById('main-app').style.display = 'flex';
       startApp();
+      showNewQueriesNotification(result.newQueriesSinceLastVisit || 0);
     } else {
       showMsg(msgEl, (result && result.error) ? result.error : 'Login failed.', 'error');
     }
@@ -815,6 +861,7 @@ function initTabs(){
       if (btn.dataset.tab === 'resolve') loadQueryList(document.getElementById('resolve-month').value, renderResolveList);
       if (btn.dataset.tab === 'edit-search') loadQueryList(document.getElementById('search-month').value, renderSearchResults);
       if (btn.dataset.tab === 'dashboard') loadStats();
+      if (btn.dataset.tab === 'settings') loadLoginLog();
     });
   });
 }
@@ -1076,17 +1123,19 @@ function renderResolveList(refetch){
 
   container.innerHTML = `
     <table>
-      <thead><tr><th>Date</th><th>Query</th><th>Status</th><th>Actions</th></tr></thead>
+      <thead><tr><th>Date &amp; Time</th><th>Query</th><th>Assignee</th><th>Assignee 2</th><th>Status</th><th>Actions</th></tr></thead>
       <tbody>
         ${open.map(q => {
           const key = makeKey(q);
           const isEditing = key === editingKey;
           return `
           <tr data-row="${q.row}" data-month="${escapeHtml(q.month)}">
-            <td>${escapeHtml(q.date)}</td>
+            <td>${escapeHtml(q.dateTime || q.date)}</td>
             <td class="qtext">${isEditing
               ? `<textarea class="edit-textarea" data-key="${key}">${escapeHtml(q.queryText)}</textarea>`
               : escapeHtml(q.queryText)}</td>
+            <td>${escapeHtml(q.assignee || '—')}</td>
+            <td>${escapeHtml(q.assignee2 || '—')}</td>
             <td>${statusBadge(q)}</td>
             <td>
               <div class="row-actions">
@@ -1096,15 +1145,12 @@ function renderResolveList(refetch){
                     <option value="assigned" ${q.assigned?'selected':''}>Assigned</option>
                     <option value="completed">Query Out</option>
                   </select>
-                  <select class="resolve-assignee" style="display:${q.pending?'inline-block':'none'}">
-                    <option value="">Assignee…</option>
-                    ${teamNames.map(n => `<option value="${escapeHtml(n)}" ${n===q.assignee?'selected':''}>${escapeHtml(n)}</option>`).join('')}
-                  </select>
                   <select class="resolve-name" style="display:none">
                     <option value="">Resolver…</option>
                     ${teamNames.map(n => `<option value="${escapeHtml(n)}">${escapeHtml(n)}</option>`).join('')}
                   </select>
                   <button class="mini-btn save-resolve">Save</button>
+                  <button class="mini-btn reassign-btn" data-row="${q.row}" data-month="${escapeHtml(q.month)}">Reassign</button>
                   ${editActionsHtml(key, false)}
                 `}
               </div>
@@ -1116,15 +1162,14 @@ function renderResolveList(refetch){
   `;
 
   attachEditHandlers(container, renderResolveList);
+  attachReassignHandlers(container, renderResolveList);
 
   container.querySelectorAll('tr').forEach(tr => {
     const statusSel = tr.querySelector('.resolve-status');
-    const assigneeSel = tr.querySelector('.resolve-assignee');
     const nameSel = tr.querySelector('.resolve-name');
     if (!statusSel) return; // row is in edit mode, no status controls to wire up
 
     statusSel.addEventListener('change', () => {
-      assigneeSel.style.display = statusSel.value === 'pending' ? 'inline-block' : 'none';
       nameSel.style.display = statusSel.value === 'completed' ? 'inline-block' : 'none';
     });
 
@@ -1132,22 +1177,36 @@ function renderResolveList(refetch){
       const rowIndex = tr.dataset.row;
       const month = tr.dataset.month;
       const status = statusSel.value;
-      const assignee = assigneeSel.value;
       const name = nameSel.value;
-      if (status === 'pending' && !assignee){
-        alert('Select an assignee before marking Pending.');
-        return;
-      }
       if (status === 'completed' && !name){
         alert('Select a resolver name before marking Query Out.');
         return;
       }
-      const result = await apiPost({ action: 'update', month, rowIndex, status, assigneeName: assignee, resolverName: name });
+      const result = await apiPost({ action: 'update', month, rowIndex, status, resolverName: name });
       if (result.success){
         loadQueryList(document.getElementById('resolve-month').value, renderResolveList);
         loadStats();
       } else {
         alert(result.error || 'Update failed.');
+      }
+    });
+  });
+}
+
+// Shared by Resolve and Edit/Search: lets an admin set "Assignee 2" (a
+// reassignment) without ever touching the original Assignee column.
+function attachReassignHandlers(container, reloadFn){
+  container.querySelectorAll('.reassign-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const rowIndex = btn.dataset.row;
+      const month = btn.dataset.month;
+      const assigneeName2 = prompt('Reassign this query to (leave blank to clear a reassignment):');
+      if (assigneeName2 === null) return; // cancelled
+      const result = await apiPost({ action: 'reassignQuery', month, rowIndex, assigneeName2: assigneeName2.trim() });
+      if (result.success){
+        reloadFn(true);
+      } else {
+        alert(result.error || 'Could not reassign.');
       }
     });
   });
@@ -1200,23 +1259,28 @@ function renderSearchResults(refetch){
 
   container.innerHTML = `
     <table>
-      <thead><tr><th>Date</th><th>Time</th><th>Query</th><th>Status</th><th>Requester</th><th>Assignee</th><th>Resolver</th><th>Actions</th></tr></thead>
+      <thead><tr><th>Date &amp; Time</th><th>Query</th><th>Status</th><th>Requester</th><th>Assignee</th><th>Assignee 2</th><th>Resolver</th><th>Actions</th></tr></thead>
       <tbody>
         ${rows.map(q => {
           const key = makeKey(q);
           const isEditing = key === editingKey;
           return `
           <tr>
-            <td>${escapeHtml(q.date)}</td>
-            <td>${escapeHtml(String(q.time))}</td>
+            <td>${escapeHtml(q.dateTime || q.date)}</td>
             <td class="qtext">${isEditing
               ? `<textarea class="edit-textarea" data-key="${key}">${escapeHtml(q.queryText)}</textarea>`
               : escapeHtml(q.queryText)}</td>
             <td>${statusBadge(q)}</td>
             <td>${escapeHtml(q.requester || '—')}</td>
             <td>${escapeHtml(q.assignee || '—')}</td>
+            <td>${escapeHtml(q.assignee2 || '—')}</td>
             <td>${escapeHtml(q.name || '—')}</td>
-            <td>${editActionsHtml(key, isEditing)}</td>
+            <td>
+              <div class="row-actions">
+                ${editActionsHtml(key, isEditing)}
+                ${!isEditing ? `<button class="mini-btn reassign-btn" data-row="${q.row}" data-month="${escapeHtml(q.month)}">Reassign</button>` : ''}
+              </div>
+            </td>
           </tr>
         `}).join('')}
       </tbody>
@@ -1224,6 +1288,7 @@ function renderSearchResults(refetch){
   `;
 
   attachEditHandlers(container, renderSearchResults);
+  attachReassignHandlers(container, renderSearchResults);
 }
 
 function statusBadge(q){
@@ -1391,6 +1456,33 @@ function renderAdminList(){
       }
     });
   });
+}
+
+/* ---------------------------- login activity ---------------------------- */
+async function loadLoginLog(){
+  const container = document.getElementById('login-log-container');
+  try{
+    const entries = await apiGet('loginLog');
+    if (!Array.isArray(entries) || entries.length === 0){
+      container.innerHTML = '<div class="empty-state">No login activity recorded yet.</div>';
+      return;
+    }
+    container.innerHTML = `
+      <table>
+        <thead><tr><th>Timestamp</th><th>Username</th></tr></thead>
+        <tbody>
+          ${entries.map(e => `
+            <tr>
+              <td>${escapeHtml(e.timestamp)}</td>
+              <td>${escapeHtml(e.username)}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    `;
+  }catch(err){
+    console.error('Could not load login activity', err);
+  }
 }
 
 /* ---------------------------- utils ---------------------------- */
