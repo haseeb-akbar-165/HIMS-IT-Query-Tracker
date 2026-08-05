@@ -1346,9 +1346,30 @@ function renderAdminList(){
   list.innerHTML = adminNames.map(n => `
     <li>
       <span>${escapeHtml(n)}${n === currentUsername ? ' <span style="color:var(--ink-soft); font-size:12px;">(you)</span>' : ''}</span>
-      ${adminNames.length > 1 ? `<button class="remove-link" data-username="${escapeHtml(n)}">Remove</button>` : ''}
+      <div class="row-actions" style="gap:6px;">
+        <button class="mini-btn reset-pw-link" data-username="${escapeHtml(n)}">Reset Password</button>
+        ${adminNames.length > 1 ? `<button class="remove-link" data-username="${escapeHtml(n)}">Remove</button>` : ''}
+      </div>
     </li>
   `).join('');
+
+  list.querySelectorAll('.reset-pw-link').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const username = btn.dataset.username;
+      const newPassword = prompt(`Enter a new password for "${username}" (min 4 characters):`);
+      if (newPassword === null) return; // cancelled
+      if (newPassword.trim().length < 4){
+        alert('Password must be at least 4 characters.');
+        return;
+      }
+      const result = await apiPost({ action: 'resetAdminPassword', username, newPassword: newPassword.trim() });
+      if (result.success){
+        alert(`Password for "${username}" has been reset.`);
+      } else {
+        alert(result.error || 'Could not reset password.');
+      }
+    });
+  });
 
   list.querySelectorAll('.remove-link').forEach(btn => {
     btn.addEventListener('click', async () => {
