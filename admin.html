@@ -440,7 +440,7 @@
   /* Tables can get wide (many columns) — let them scroll horizontally on
      narrow screens instead of squashing unreadably. */
   #resolve-list, #search-results{ overflow-x:auto; -webkit-overflow-scrolling:touch; }
-  #resolve-list table, #search-results table{ min-width:640px; }
+  #resolve-list table, #search-results table{ min-width:820px; }
   .row-actions{ flex-wrap:wrap; row-gap:8px; }
 
   @media (max-width: 860px){
@@ -1123,14 +1123,15 @@ function renderResolveList(refetch){
 
   container.innerHTML = `
     <table>
-      <thead><tr><th>Date &amp; Time</th><th>Query</th><th>Assignee</th><th>Assignee 2</th><th>Status</th><th>Actions</th></tr></thead>
+      <thead><tr><th>Date</th><th>Time</th><th>Query</th><th>Assignee</th><th>Assignee 2</th><th>Status</th><th>Actions</th></tr></thead>
       <tbody>
         ${open.map(q => {
           const key = makeKey(q);
           const isEditing = key === editingKey;
           return `
           <tr data-row="${q.row}" data-month="${escapeHtml(q.month)}">
-            <td>${escapeHtml(q.dateTime || q.date)}</td>
+            <td>${escapeHtml(q.date)}</td>
+            <td>${escapeHtml(q.time)}</td>
             <td class="qtext">${isEditing
               ? `<textarea class="edit-textarea" data-key="${key}">${escapeHtml(q.queryText)}</textarea>`
               : escapeHtml(q.queryText)}</td>
@@ -1259,14 +1260,15 @@ function renderSearchResults(refetch){
 
   container.innerHTML = `
     <table>
-      <thead><tr><th>Date &amp; Time</th><th>Query</th><th>Status</th><th>Requester</th><th>Assignee</th><th>Assignee 2</th><th>Resolver</th><th>Actions</th></tr></thead>
+      <thead><tr><th>Date</th><th>Time</th><th>Query</th><th>Status</th><th>Requester</th><th>Assignee</th><th>Assignee 2</th><th>Resolver</th><th>Actions</th></tr></thead>
       <tbody>
         ${rows.map(q => {
           const key = makeKey(q);
           const isEditing = key === editingKey;
           return `
           <tr>
-            <td>${escapeHtml(q.dateTime || q.date)}</td>
+            <td>${escapeHtml(q.date)}</td>
+            <td>${escapeHtml(q.time)}</td>
             <td class="qtext">${isEditing
               ? `<textarea class="edit-textarea" data-key="${key}">${escapeHtml(q.queryText)}</textarea>`
               : escapeHtml(q.queryText)}</td>
